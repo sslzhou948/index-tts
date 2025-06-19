@@ -1,0 +1,107 @@
+version: '3.8'
+
+services:
+  indextts:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    image: indextts:latest
+    container_name: indextts-service
+    
+    # GPU support (uncomment if using NVIDIA GPU)
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+    
+    ports:
+      - "8000:8000"  # API server
+      - "7860:7860"  # Web UI
+    
+    volumes:
+      # Model files (mount your local model directory)
+      - ./checkpoints:/app/checkpoints:ro
+      # Output directory for generated audio
+      - ./outputs:/app/outputs
+      # Optional: Custom prompts directory
+      - ./prompts:/app/prompts
+    
+    environment:
+      # API Configuration
+      - API_HOST=0.0.0.0
+      - API_PORT=8000
+      - API_WORKERS=1
+      
+      # Model Configuration
+      - MODEL_DIR=/app/checkpoints
+      - CONFIG_PATH=/app/checkpoints/config.yaml
+      
+      # CUDA Configuration
+      - CUDA_VISIBLE_DEVICES=0
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+      
+      # Python Configuration
+      - PYTHONUNBUFFERED=1
+      - PYTHONPATH=/app
+    
+    # Health check
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    
+    # Restart policy
+    restart: unless-stopped
+    
+    # Resource limits (adjust based on your system)
+    deploy:
+      resources:
+        limits:
+          memory: 8G
+        reservations:
+          memory: 4G
+    
+    # Command override options:
+    # For API server (default):
+    command: ["python", "api_server.py"]
+    
+    # For Web UI:
+    # command: ["python", "webui.py", "--host", "0.0.0.0", "--port", "7860"]
+    
+    # For CLI mode:
+    # command: ["tail", "-f", "/dev/null"]  # Keep container running for CLI access
+
+  # Optional: Nginx reverse proxy for production
+  nginx:
+    image: nginx:alpine
+    container_name: indextts-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./ssl:/etc/nginx/ssl:ro  # SSL certificates if needed
+    depends_on:
+      - indextts
+    restart: unless-stopped
+    profiles:
+      - production
+
+# Networks
+networks:
+  default:
+    name: indextts-network
+
+# Volumes for persistent data
+volumes:
+  model_cache:
+    driver: local
+  output_data:
+    driver: local
